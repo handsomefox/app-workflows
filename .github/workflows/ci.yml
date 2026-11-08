@@ -1,0 +1,271 @@
+name: CI
+
+# Checks one app: workflow lint, formatting, tests, Clippy, unused dependencies, and the
+# RustSec audit, on Linux and Windows. Each app calls this from its own ci.yml, and its
+# release.yml calls it again on the commit it releases.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit or ref to check; empty means the caller's event commit
+        required: false
+        type: string
+        default: ""
+      submodules:
+        description: Passed to actions/checkout, such as "recursive"
+        required: false
+        type: string
+        default: "false"
+      no-default-features-lib:
+        description: Also test and lint the library with --no-default-features
+        required: false
+        type: boolean
+        default: false
+      linux-floor-check:
+        description: >-
+          Path, in the app, to a script that checks a Linux binary's glibc floor. When set, a
+          job builds the binary named in `bin` in the pinned Ubuntu 22.04 container and runs
+          the script on it.
+        required: false
+        type: string
+        default: ""
+      bin:
+        description: The executable that linux-floor-check checks
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Nothing is cached between runs, so incremental artifacts would be written and never read.
+  CARGO_INCREMENTAL: 0
+  # Keeps file and line numbers in panic backtraces without the full debug info, which is
+  # slow to write and link on Windows.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  workflows:
+    name: Workflows
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CI_TOOLS: actionlint zizmor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      # Installs each tool named in CI_TOOLS from a release binary pinned by SHA-256. The hash
+      # is checked before the archive is read. Dependabot cannot bump these rows. To bump one,
+      # change its version, URL, and hash, taking the hash from the digest GitHub records:
+      #   gh release view <tag> -R <owner>/<repo> --json assets \
+      #       --jq '.assets[] | select(.name == "<asset>") | .digest'
+      - &install-ci-tools
+        name: Install CI tools
+        run: |
+          # name version sha256 url
+          tools=(
+            "cargo-audit 0.22.2 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428 https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz"
+            "cargo-machete 0.9.2 48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9 https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz"
+            "actionlint 1.7.12 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+            "zizmor 1.30.1 e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          )
+          bin_dir="$RUNNER_TEMP/ci-tools"
+          mkdir -p "$bin_dir"
+          work=$(mktemp -d)
+          read -ra names <<< "$CI_TOOLS"
+          for name in "${names[@]}"; do
+            row=
+            for candidate in "${tools[@]}"; do
+              if [[ "${candidate%% *}" == "$name" ]]; then
+                row=$candidate
+              fi
+            done
+            if [[ -z "$row" ]]; then
+              echo "error: no pinned release for $name" >&2
+              exit 2
+            fi
+            read -r _ version sha256 url <<< "$row"
+            archive="$work/$name.tar.gz"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --retry 3 \
+              --output "$archive" "$url"
+            echo "$sha256  $archive" | sha256sum --check --strict --quiet
+            mapfile -t entries < <(tar -tzf "$archive" | awk -F/ -v name="$name" '$NF == name')
+            if ((${#entries[@]} != 1)); then
+              echo "error: expected one $name in $url, found ${#entries[@]}" >&2
+              exit 1
+            fi
+            tar -xzf "$archive" -C "$work" -- "${entries[0]}"
+            install -m 755 "$work/${entries[0]}" "$bin_dir/$name"
+            # sed reads to the end; head would close the pipe early and pipefail reports SIGPIPE.
+            echo "installed $name $version: $("$bin_dir/$name" --version | sed -n 1p)"
+          done
+          echo "$bin_dir" >> "$GITHUB_PATH"
+      - name: Lint workflows
+        run: actionlint
+      - name: Lint scripts
+        run: |
+          shopt -s nullglob
+          scripts=(scripts/*.sh)
+          if ((${#scripts[@]} > 0)); then
+            shellcheck "${scripts[@]}"
+          else
+            echo "no scripts to lint"
+          fi
+      # The pedantic persona is the one that reports unpinned container images.
+      - name: Audit workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --persona pedantic --format github .github/workflows .github/dependabot.yml
+
+  portable:
+    name: Portable
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI_TOOLS: cargo-machete
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+      - &install-rust
+        name: Install the pinned Rust toolchain
+        run: |
+          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
+          rustup toolchain install
+          rustc --version
+          cargo --version
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test complete workspace
+        run: cargo test --workspace --no-fail-fast --locked
+      - name: Lint complete workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The portable core must stay buildable without the interface's default features.
+      - name: Test the library without default features
+        if: inputs.no-default-features-lib
+        run: cargo test --lib --no-default-features --locked
+      - name: Lint the library without default features
+        if: inputs.no-default-features-lib
+        run: cargo clippy --lib --no-default-features --locked -- -D warnings
+      - *install-ci-tools
+      - name: Detect unused dependencies
+        run: cargo machete
+
+  windows:
+    name: Windows
+    permissions:
+      contents: read
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+      - *install-rust
+      # Test and Clippy share one job so Clippy reuses the dependencies the tests compiled.
+      - name: Test complete workspace
+        run: cargo test --workspace --no-fail-fast --locked
+      - name: Lint complete workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  linux-floor:
+    name: Linux glibc floor
+    if: inputs.linux-floor-check != ''
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The Linux release binary needs the glibc it was linked against. Building in 22.04 holds
+    # the floor at 2.35; a newer image raises it. The tests run in Portable, so this job only
+    # builds and checks what the binary links, as an early warning before a release.
+    # Pinned by digest; `docker buildx imagetools inspect ubuntu:22.04` prints the current one.
+    container: ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
+    env:
+      FLOOR_CHECK: ${{ inputs.linux-floor-check }}
+      BIN: ${{ inputs.bin }}
+    steps:
+      # Before checkout: without git, actions/checkout downloads a tarball with no submodule.
+      # archive.ubuntu.com throttles GitHub's runners to a crawl; the Azure mirror is the one
+      # the runner images themselves use. A mirror connection that trickles bytes slips past
+      # apt's read timeout and has hung this step for over 15 minutes, so each attempt gets 5
+      # minutes, and apt-get resumes partial downloads on the next one.
+      - name: Install build tools
+        timeout-minutes: 17
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sed -i -E 's#http://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > /etc/apt/apt.conf.d/80-ci
+          for attempt in 1 2 3; do
+            if timeout 300 apt-get update &&
+              timeout 300 apt-get install -y --no-install-recommends git ca-certificates curl build-essential cmake clang libclang-dev; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "apt-get failed or stalled on attempt $attempt; retrying"
+            dpkg --configure -a
+          done
+          git config --global --add safe.directory '*'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+      # rustup-init is checked against its published hash rather than piped from sh.rustup.rs.
+      # https://static.rust-lang.org/rustup/archive/<version>/x86_64-unknown-linux-gnu/rustup-init.sha256
+      # holds the hash for a rustup release.
+      - name: Install the pinned Rust toolchain
+        env:
+          RUSTUP_INIT_URL: https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+          RUSTUP_INIT_SHA256: dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$RUNNER_TEMP/rustup-init" "$RUSTUP_INIT_URL"
+          echo "$RUSTUP_INIT_SHA256  $RUNNER_TEMP/rustup-init" | sha256sum --check --strict
+          chmod 755 "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" toolchain install
+          # sed reads to the end; head would close the pipe early and pipefail reports SIGPIPE.
+          ldd --version | sed -n 1p
+          gcc --version | sed -n 1p
+          cmake --version | sed -n 1p
+          "$HOME/.cargo/bin/rustc" --version
+      - name: Build the application
+        run: cargo build --locked --bin "$BIN"
+      - name: Check glibc floor and linked libraries
+        run: '"./$FLOOR_CHECK" "target/debug/$BIN"'
+
+  audit:
+    name: Audit
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CI_TOOLS: cargo-audit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - *install-ci-tools
+      - name: Audit committed lockfile
+        run: cargo-audit audit --file Cargo.lock
