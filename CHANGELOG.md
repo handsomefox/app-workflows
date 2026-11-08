@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Find the built executables when an app ships only one platform. 0.1.0 failed every Windows-only release while packing it.
+
 ## 0.1.0
 
 - Check and release apps through reusable `ci.yml` and `release.yml` workflows, in place of a copy of each workflow and its scripts in every app.

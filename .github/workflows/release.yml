@@ -234,11 +234,14 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.meta.outputs.ref }}
+      # Merged, so the layout does not depend on how many artifacts match: a pattern that
+      # matches one artifact skips the per-artifact folder. <bin>.exe and <bin> never collide.
       - name: Download the executables
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bin-*
           path: bin
+          merge-multiple: true
       # A windows-* platform becomes a .zip and a linux-* platform a .tar.gz. Each archive
       # holds one folder, <bin>-<version>-<platform>/, with the binary, README.md, and LICENSE.
       - name: Package release archives
@@ -256,7 +259,7 @@ jobs:
                 exit 2
                 ;;
             esac
-            binary="bin/bin-$platform/$executable"
+            binary="bin/$executable"
             if [[ ! -f "$binary" ]]; then
               echo "error: no built executable at $binary" >&2
               exit 2

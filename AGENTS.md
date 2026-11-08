@@ -27,9 +27,11 @@ The steps run inline, not from a checked-out script, because a reusable workflow
 ## Release a change
 
 1. Push to `main`. The Lint workflow must pass.
-2. Prove the change on one app first. Point Windows Toolkit's two caller workflows at the new commit, push, and run its Release workflow by hand with no tag. That dry run builds, packs, and verifies without publishing.
-3. Add a `## <version>` section to `CHANGELOG.md`, then push an annotated `v<version>` tag on the tested commit and create a GitHub release from that section.
-4. In each app, move both caller pins to the new commit under one commit subject, with Windows Toolkit first, or merge Dependabot's pull requests.
+2. Add a `## <version>` section to `CHANGELOG.md`, then push an annotated `v<version>` tag. Tag before any app pins the commit: zizmor checks each pin's `# v<version>` comment against the tag.
+3. Prove the tag on one app first. Point Windows Toolkit's two caller workflows at the tagged commit, push, and run its Release workflow by hand with no tag. That dry run builds, packs, and verifies without publishing.
+4. If the dry run fails, fix the workflow and release the next patch version. Never move a published tag.
+5. Create a GitHub release from the `CHANGELOG.md` section.
+6. In each other app, move both caller pins to the tagged commit under one commit subject, or merge Dependabot's pull requests.
 
 ## Bump CI tool pins by hand
 
