@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Run the checks inside `release.yml`, on the commit it resolved, alongside the builds. A release takes about four minutes less. Each app's release caller drops its `checks` job and passes `no-default-features-lib` to `release.yml` instead.
+- Run Clippy on Windows in its own job beside the tests, so the slowest CI job finishes sooner.
+- Detect unused dependencies before anything compiles.
+- Upload the packed archives without compressing them again.
+
 ## 0.1.1
 
 - Find the built executables when an app ships only one platform. 0.1.0 failed every Windows-only release while packing it.

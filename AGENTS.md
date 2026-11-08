@@ -14,7 +14,8 @@ Keep these checks:
 
 - **Releasing.** Only a pushed `v*` tag, or a tag named in a manual run, publishes. Anything else is a dry run.
 - **Version format.** A release version must be `<major>.<minor>.<patch>` and match the tag.
-- **The built commit.** Every job builds the commit `meta` resolved, and `publish` confirms the tag still names it.
+- **The built commit.** Every job, the checks included, uses the commit `meta` resolved, and `publish` confirms the tag still names it.
+- **Checks before packing.** `assemble` runs only after `ci.yml` and every requested build pass.
 - **Verification.** The archives are verified once after packing and again in `publish`, on the downloaded copy.
 - **Notes.** A release cannot go out without a non-empty `CHANGELOG.md` section.
 
@@ -28,7 +29,7 @@ The steps run inline, not from a checked-out script, because a reusable workflow
 
 1. Push to `main`. The Lint workflow must pass.
 2. Add a `## <version>` section to `CHANGELOG.md`, then push an annotated `v<version>` tag. Tag before any app pins the commit: zizmor checks each pin's `# v<version>` comment against the tag.
-3. Prove the tag on one app first. Point Windows Toolkit's two caller workflows at the tagged commit, push, and run its Release workflow by hand with no tag. That dry run builds, packs, and verifies without publishing.
+3. Prove the tag on one app first. Point Windows Toolkit's two callers at the tagged commit, push, and run its Release workflow by hand with no tag. That dry run builds, packs, and verifies without publishing.
 4. If the dry run fails, fix the workflow and release the next patch version. Never move a published tag.
 5. Create a GitHub release from the `CHANGELOG.md` section.
 6. In each other app, move both caller pins to the tagged commit under one commit subject, or merge Dependabot's pull requests.

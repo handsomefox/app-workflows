@@ -1,8 +1,8 @@
 name: CI
 
 # Checks one app: workflow lint, formatting, tests, Clippy, unused dependencies, and the
-# RustSec audit, on Linux and Windows. Each app calls this from its own ci.yml, and its
-# release.yml calls it again on the commit it releases.
+# RustSec audit, on Linux and Windows. Each app calls this from its own ci.yml, and
+# release.yml here calls it on the commit it releases.
 on:
   workflow_call:
     inputs:
@@ -149,6 +149,10 @@ jobs:
           cargo --version
       - name: Check formatting
         run: cargo fmt --all -- --check
+      # Before anything compiles, so an unused dependency fails in seconds.
+      - *install-ci-tools
+      - name: Detect unused dependencies
+        run: cargo machete
       - name: Test complete workspace
         run: cargo test --workspace --no-fail-fast --locked
       - name: Lint complete workspace
@@ -160,9 +164,6 @@ jobs:
       - name: Lint the library without default features
         if: inputs.no-default-features-lib
         run: cargo clippy --lib --no-default-features --locked -- -D warnings
-      - *install-ci-tools
-      - name: Detect unused dependencies
-        run: cargo machete
 
   windows:
     name: Windows
@@ -177,9 +178,24 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.submodules }}
       - *install-rust
-      # Test and Clippy share one job so Clippy reuses the dependencies the tests compiled.
       - name: Test complete workspace
         run: cargo test --workspace --no-fail-fast --locked
+
+  # Apart from the tests, because Windows is the slowest job. Clippy compiles the
+  # dependencies again, but the two finish sooner side by side than one after the other.
+  windows-clippy:
+    name: Windows Clippy
+    permissions:
+      contents: read
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
+      - *install-rust
       - name: Lint complete workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 

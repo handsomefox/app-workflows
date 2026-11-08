@@ -1,7 +1,7 @@
 name: Release
 
-# Builds, packages, verifies, attests, and publishes one app's release. The app's own
-# release.yml runs ci.yml on the same commit first, then calls this.
+# Checks, builds, packages, verifies, attests, and publishes one app's release. ci.yml runs on
+# the resolved commit while the executables build, and nothing is packed until both pass.
 #
 # The archives are a contract with every installed copy of the app, because app-update
 # installs from them: <bin>-<version>-<platform>.zip (.tar.gz on Linux) holding
@@ -40,6 +40,11 @@ on:
         required: false
         type: string
         default: "false"
+      no-default-features-lib:
+        description: Passed to ci.yml, which also tests and lints the library with --no-default-features
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -125,6 +130,21 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$notes" | tee "$RUNNER_TEMP/notes.md"
+
+  # A relative call runs ci.yml from this repository, at the same commit as this file,
+  # whichever app calls it. zizmor prefers the newer $/ form, which actionlint cannot parse yet.
+  checks:
+    name: Checks
+    needs: meta
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository]
+    with:
+      ref: ${{ needs.meta.outputs.ref }}
+      submodules: ${{ inputs.submodules }}
+      no-default-features-lib: ${{ inputs.no-default-features-lib }}
+      linux-floor-check: ${{ inputs.linux-floor-check }}
+      bin: ${{ inputs.bin }}
 
   build-windows:
     name: Build Windows x86_64
@@ -219,9 +239,10 @@ jobs:
 
   assemble:
     name: Package and verify
+    # The builds run alongside the checks, so a release that fails a check is never packed.
     # build-linux is skipped unless inputs.linux, which must not skip this job too.
-    if: ${{ !cancelled() && needs.build-windows.result == 'success' && (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped') }}
-    needs: [meta, build-windows, build-linux]
+    if: ${{ !cancelled() && needs.checks.result == 'success' && needs.build-windows.result == 'success' && (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped') }}
+    needs: [meta, checks, build-windows, build-linux]
     permissions:
       contents: read
     runs-on: ubuntu-24.04
@@ -345,6 +366,8 @@ jobs:
           name: release-assets
           path: dist/
           if-no-files-found: error
+          # The archives are compressed already.
+          compression-level: 0
 
   publish:
     name: Attest and publish

@@ -17,7 +17,7 @@ These apps use it:
 
 `ci.yml` runs actionlint, shellcheck, and `zizmor --persona pedantic` on the app's workflows. It runs `cargo fmt`, the tests, and Clippy on Ubuntu and Windows, plus `cargo machete` and `cargo audit`. CI tools come from release binaries pinned by SHA-256.
 
-`release.yml` resolves the version, builds the Windows executable, and optionally a Linux one in a pinned Ubuntu 22.04 container. It packs versioned archives with a `SHA256SUMS`, verifies them twice, attests them, and publishes the GitHub release, with the app's `CHANGELOG.md` section as its notes. A manual run without a tag is a dry run that publishes nothing.
+`release.yml` resolves the version and the commit, then runs `ci.yml` on that commit while it builds the Windows executable, and optionally a Linux one in a pinned Ubuntu 22.04 container. Nothing is packed until the checks and the builds pass. It packs versioned archives with a `SHA256SUMS`, verifies them twice, attests them, and publishes the GitHub release, with the app's `CHANGELOG.md` section as its notes. A manual run without a tag is a dry run that publishes nothing.
 
 The archives are what [app-update](https://github.com/handsomefox/app-update) installs from. Each holds `<bin>-<version>-<platform>/<bin>[.exe]`, `README.md`, and `LICENSE`, in a `<bin>-<version>-<platform>.zip`, or `.tar.gz` on Linux.
 
@@ -31,7 +31,7 @@ The archives are what [app-update](https://github.com/handsomefox/app-update) in
 | `linux` | release | Also build and ship `linux-x86_64`. |
 | `linux-floor-check` | both | A script in the app that checks the Linux binary's glibc floor. In CI, setting it adds the container build. |
 | `submodules` | both | Passed to `actions/checkout`, such as `recursive`. |
-| `no-default-features-lib` | ci | Also test and lint the library with `--no-default-features`. |
+| `no-default-features-lib` | both | Also test and lint the library with `--no-default-features`. |
 | `ref` | ci | The commit or ref to check. Empty means the event's commit. |
 
 ## Use it
@@ -61,7 +61,7 @@ jobs:
   ci:
     permissions:
       contents: read
-    uses: handsomefox/app-workflows/.github/workflows/ci.yml@<commit> # v0.1.0
+    uses: handsomefox/app-workflows/.github/workflows/ci.yml@<commit> # v0.2.0
 ```
 
 `.github/workflows/release.yml` in the app:
@@ -87,27 +87,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  checks:
-    permissions:
-      contents: read
-    uses: handsomefox/app-workflows/.github/workflows/ci.yml@<commit> # v0.1.0
-    with:
-      ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
-
   release:
-    needs: checks
     permissions:
       attestations: write # Publish provenance for each release asset.
       contents: write # Create the GitHub release and upload assets.
       id-token: write # Request the OIDC identity used for provenance.
-    uses: handsomefox/app-workflows/.github/workflows/release.yml@<commit> # v0.1.0
+    uses: handsomefox/app-workflows/.github/workflows/release.yml@<commit> # v0.2.0
     with:
       package: toolkit-app
       bin: win-toolkit
       release-tag: ${{ inputs.release_tag }}
 ```
 
-Pin both lines to the same full commit SHA, with the tag in the comment. Dependabot's `github-actions` updater moves the pin when a new tag is released.
+Pin both callers to the same full commit SHA, with the tag in the comment. Dependabot's `github-actions` updater moves the pin when a new tag is released.
 
 ## License
 
