@@ -19,7 +19,7 @@ These apps use it:
 
 `release.yml` resolves the version and the commit, then runs `ci.yml` on that commit while it builds the Windows executable, and optionally a Linux one in a pinned Ubuntu 22.04 container. Nothing is packed until the checks and the builds pass. It packs versioned archives with a `SHA256SUMS`, verifies them twice, attests them, and publishes the GitHub release, with the app's `CHANGELOG.md` section as its notes. A manual run without a tag is a dry run that publishes nothing.
 
-The archives are what [app-update](https://github.com/handsomefox/app-update) installs from. Each holds `<bin>-<version>-<platform>/<bin>[.exe]`, `README.md`, and `LICENSE`, in a `<bin>-<version>-<platform>.zip`, or `.tar.gz` on Linux.
+The archives are what [app-update](https://github.com/handsomefox/app-internals) installs from. Each holds `<bin>-<version>-<platform>/<bin>[.exe]`, `README.md`, and `LICENSE`, in a `<bin>-<version>-<platform>.zip`, or `.tar.gz` on Linux.
 
 ## Inputs
 

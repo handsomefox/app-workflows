@@ -8,7 +8,7 @@ DLSS Updater, Elden Ring Save Guard, osu!lazer Cleaner, Windows Cleaner, and Win
 
 ## Do not break the release contract
 
-The tag format, the archive names and layout, and `SHA256SUMS` are a contract with every installed copy, because [app-update](https://github.com/handsomefox/app-update) installs from them. The README lists them. Renaming any part strands users on the version before the rename.
+The tag format, the archive names and layout, and `SHA256SUMS` are a contract with every installed copy, because [app-update](https://github.com/handsomefox/app-internals) installs from them. The README lists them. Renaming any part strands users on the version before the rename.
 
 Keep these checks:
 
