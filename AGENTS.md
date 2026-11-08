@@ -27,7 +27,7 @@ The steps run inline, not from a checked-out script, because a reusable workflow
 
 ## Release a change
 
-1. Push to `main`. The Lint workflow must pass.
+1. Push to `main`. The Lint workflow must pass. It runs `tests/release-steps.sh`, which runs the packaging, verification, and release-notes steps of `release.yml` against fixtures. Run it locally after changing one of them, and add a case for any new rule they enforce.
 2. Add a `## <version>` section to `CHANGELOG.md`, then push an annotated `v<version>` tag. Tag before any app pins the commit: zizmor checks each pin's `# v<version>` comment against the tag.
 3. Prove the tag on one app first. Point Windows Toolkit's two callers at the tagged commit, push, and run its Release workflow by hand with no tag. That dry run builds, packs, and verifies without publishing.
 4. If the dry run fails, fix the workflow and release the next patch version. Never move a published tag.

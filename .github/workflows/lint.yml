@@ -1,7 +1,7 @@
 name: Lint
 
 # This repository's own check: the reusable workflows must pass actionlint, which also runs
-# shellcheck on every run: block, and zizmor before an app pins them.
+# shellcheck on every run: block, zizmor, and the release-step tests before an app pins them.
 on:
   push:
     branches: [main]
@@ -58,6 +58,13 @@ jobs:
           echo "$bin_dir" >> "$GITHUB_PATH"
       - name: Lint workflows
         run: actionlint
+      # actionlint checks run: blocks only, so the tests' own script gets shellcheck here.
+      - name: Lint test scripts
+        run: shellcheck tests/*.sh
+      # Runs the packaging, verification, and release-notes steps of release.yml against
+      # fixtures. yq ships on the runner image.
+      - name: Test release steps
+        run: tests/release-steps.sh
       # The pedantic persona is the one that reports unpinned container images.
       - name: Audit workflows
         env:
