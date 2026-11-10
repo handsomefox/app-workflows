@@ -73,7 +73,9 @@ expect_error "refuses to pack a missing Linux executable" "$dir" "$package"
 
 dir=$(fixture windows-x86_64 linux-x86_64)
 run_step "$dir" "$package"
-sed -i '1s/^./0/' "$dir/dist/SHA256SUMS"
+# Change the first digit to a different one. Writing a fixed digit would leave
+# a checksum that already starts with it valid.
+sed -i '1{s/^0/1/;t;s/^./0/}' "$dir/dist/SHA256SUMS"
 expect_error "rejects a checksum that does not match" "$dir" "$verify"
 
 dir=$(fixture windows-x86_64 linux-x86_64)
