@@ -71,13 +71,14 @@ jobs:
       ref: ${{ steps.version.outputs.ref }}
     env:
       # Only a pushed tag or a tag named in a manual run releases. A manual run started from a
-      # tag without naming one is still a dry run.
-      TAG: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || inputs.release-tag }}
+      # tag without naming one is still a dry run, and any other event never releases, even if
+      # its caller passes a tag.
+      TAG: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.event_name == 'workflow_dispatch' && inputs.release-tag || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ inputs.release-tag && format('refs/tags/{0}', inputs.release-tag) || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release-tag && format('refs/tags/{0}', inputs.release-tag) || github.ref }}
       - &install-rust
         name: Install the pinned Rust toolchain
         run: |
